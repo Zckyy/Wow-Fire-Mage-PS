@@ -24,6 +24,7 @@ local CUSTOMBUFFS =
 
 local last_pyroclasm_stacks = 0
 local consumed_pyroclasm_stacks = 0
+local last_fireblast_time = 0
 
 local TAG = "blaze_fire_mage_"
 
@@ -43,7 +44,7 @@ end
 ---@param target game_object
 ---@return boolean
 local function is_aoe(target)
-    local units_around_target = unit_helper:get_enemy_list_around(target:get_position(), 10.0)
+    local units_around_target = unit_helper:get_enemy_list_around(target:get_position(), 15.0)
     return #units_around_target > 1
 end
 
@@ -182,9 +183,16 @@ core.register_on_update_callback(function()
         end
 
         --Combustion logic
-        if combustion_toggle then
-            if SPELLS.COMBUSTION:cast_safe(me, "Cooldown: Combustion", { cast_time = 0, skip_moving = true }) then
-                return
+        if combustion_toggle and SPELLS.COMBUSTION:cooldown_remains() == 0 then
+            local is_casting_fireball = me:is_casting() and me:casting_pct() < 90
+            if is_casting_fireball then
+                if SPELLS.COMBUSTION:cast_safe(me, "Cooldown: Combustion", { cast_time = 0, skip_moving = true, skip_casting = true }) then
+                    return
+                end
+            else
+                if SPELLS.FIREBALL:cast_safe(target, "Setup: Fireball for Combustion") then
+                    return
+                end
             end
         end
         
@@ -251,7 +259,7 @@ core.register_on_update_callback(function()
         end
 
         -- Fire Blast Logic
-        if has_heating_up and not has_heat_shimmer and not has_hyperthermia then
+        if has_heating_up and not has_heat_shimmer and not has_hyperthermia and (GetTime() - last_fireblast_time > 0.5) then
             if SPELLS.FIREBLAST:cast_safe(target, "Single Target: Fire Blast",
                     {
                         skip_gcd     = true,
@@ -260,6 +268,7 @@ core.register_on_update_callback(function()
                         skip_moving  = true,
                     })
             then
+                last_fireblast_time = GetTime()
                 return
             end
         end
