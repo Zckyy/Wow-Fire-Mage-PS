@@ -1,16 +1,3 @@
---[[
-    Legacy Fire Mage rotation ported to IZI SDK
-
-    This example demonstrates:
-    - AoE detection and splash range calculations
-    - Defensive checks (damage immunity, CC-weak states)
-    - Menu element creation and rendering
-    - Control panel integration with keybinds
-    - Basic rotation logic (Flamestrike for AoE, Fireball for single target)
-
-    Author: Voltz
-]]
-
 --Import libraries
 local unit_helper = require("common/utility/unit_helper")
 local izi = require("common/izi_sdk")
@@ -62,9 +49,6 @@ local menu =
     -- 999 "Unbinded" but functional on control panel (allows people to click it without key bound)
     toggle_key      = core.menu.keybind(7, false, TAG .. "toggle"),
 
-    --Toggle to only cast flamestrike when we can instant cast it
-    fs_only_instant = core.menu.checkbox(false, TAG .. "fs_only_instant"),
-
     combustion_key  = core.menu.keybind(7, false, TAG .. "combustion_key"),
 }
 
@@ -102,9 +86,6 @@ core.register_on_render_menu_callback(function()
 
         --Draw our combustion keybind
         menu.combustion_key:render("Combustion Keybind")
-
-        --Draw our flamestrike only when instant checkbox
-        menu.fs_only_instant:render("Cast flamestrike only when instant")
     end)
 end)
 
@@ -241,10 +222,8 @@ core.register_on_update_callback(function()
             --Check if flamestrike is instant by getting if the player has hot streak or hyperthermia buff
             local is_flamestrike_instant = me:buff_up(buffs.HOT_STREAK) or me:buff_up(buffs.HYPERTHERMIA)
 
-            --Check if the user only wants to cast flamestrike when it is instant
-            local should_cast_flamestrike = not menu.fs_only_instant:get_state() or is_flamestrike_instant
-
-            if should_cast_flamestrike then
+            --Only cast flamestrike when it is instant
+            if is_flamestrike_instant then
                 --Cast flamestrike at the most hits location
                 if SPELLS.FLAMESTRIKE:cast_safe(target, "AoE: Flamestrike",
                         {

@@ -1,7 +1,7 @@
 --Setup our plugin info
 local plugin = {}
 
-plugin.name = "Blaze - IZI Fire Mage Example"
+plugin.name = "Blaze - Fire Mage"
 plugin.version = "0.0.1"
 plugin.author = "Blaze"
 plugin.load = true
