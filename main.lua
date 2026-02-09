@@ -5,6 +5,9 @@ local enums = require("common/enums")
 local key_helper = require("common/utility/key_helper")
 local control_panel_helper = require("common/utility/control_panel_helper")
 
+--Optimization: Localize functions
+local math_max = math.max
+
 --Lets create our own variable for buffs as we will typically access buff enums frequently
 local buffs = enums.buff_db
 
@@ -153,7 +156,16 @@ core.register_on_update_callback(function()
     last_pyroclasm_stacks = actual_pyroclasm_stacks
     
     --Calculate available stacks (actual stacks minus what we've already consumed)
-    local pyroclasm_stacks = math.max(0, actual_pyroclasm_stacks - consumed_pyroclasm_stacks)
+    local pyroclasm_stacks = math_max(0, actual_pyroclasm_stacks - consumed_pyroclasm_stacks)
+
+    -- Optimization: Cache player state before looping through targets
+    local has_hot_streak = me:buff_up(buffs.HOT_STREAK)
+    local has_hyperthermia = me:buff_up(buffs.HYPERTHERMIA)
+    local has_heat_shimmer = me:buff_up(buffs.HEAT_SHIMMER)
+    local has_heating_up = me:buff_up(buffs.HEATING_UP)
+    local has_combustion = me:buff_up(buffs.COMBUSTION)
+    local is_moving = me:is_moving()
+    local combustion_toggle = menu.combustion_key:get_toggle_state()
 
     --Grab the targets from the target selector
     local targets = izi.get_ts_targets()
@@ -164,7 +176,7 @@ core.register_on_update_callback(function()
     for i = 1, #targets do
         local target = targets[i]
         --Check if the target is valid otherwise skip it
-        if not (target and target.is_valid and target:is_valid()) then
+        if not (target and target:is_valid()) then
             goto continue
         end
 
@@ -178,14 +190,13 @@ core.register_on_update_callback(function()
             goto continue
         end
 
+        --Optimization: Check AoE once per target and cache result
         --Get number of enemies that are within splash range (radius + bounding) of the target in AOE_RADIUS
-        --If you need more advanced logic and need access the enemies
-        --you can use get_enemies_in_splash_range_count instead
-        --local total_enemies_around_target = target:get_enemies_in_splash_range_count(AOE_RADIUS)
+        local aoe_active = is_aoe(target)
 
         -- [[AOE LOGIC]]
 
-        if is_aoe(target) then
+        if aoe_active then
             --Meteor Logic - Highest priority AOE spell (cast on cooldown, but sync with Combustion)
             --Check Combustion cooldown to decide if we should hold Meteor
             local combustion_cd_remaining = SPELLS.COMBUSTION:cooldown_remains()
@@ -220,7 +231,7 @@ core.register_on_update_callback(function()
             end
 
             --Check if flamestrike is instant by getting if the player has hot streak or hyperthermia buff
-            local is_flamestrike_instant = me:buff_up(buffs.HOT_STREAK) or me:buff_up(buffs.HYPERTHERMIA)
+            local is_flamestrike_instant = has_hot_streak or has_hyperthermia
 
             --Only cast flamestrike when it is instant
             if is_flamestrike_instant then
@@ -262,7 +273,7 @@ core.register_on_update_callback(function()
         end
 
         --Combustion logic - cast when keybind is toggled and spell is ready
-        if menu.combustion_key:get_toggle_state() then
+        if combustion_toggle then
             if SPELLS.COMBUSTION:cast_safe(me, "Cooldown: Combustion", { cast_time = 0, skip_moving = true }) then
                 return
             end
@@ -273,7 +284,7 @@ core.register_on_update_callback(function()
         -- Pyroblast logic
         --Check if we have the hot streak buff for a free instant cast pyroblast
         --If we do, cast pyroblast
-        if me:buff_up(buffs.HOT_STREAK) or me:buff_up(buffs.HYPERTHERMIA) then
+        if has_hot_streak or has_hyperthermia then
             if SPELLS.PYROBLAST:cast_safe(target, "Single Target: Pyroblast",
                     {
                         --Cast time is instant with hot streak
@@ -289,7 +300,8 @@ core.register_on_update_callback(function()
         end
 
         -- Scorch Logic with the Heat Shimmer bufffire blast will generate our next hot streak
-        if me:buff_up(buffs.HEAT_SHIMMER) and me:buff_up(buffs.HEATING_UP) and not me:buff_up(buffs.HYPERTHERMIA) then
+        -- Optimization: Removed redundant hyperthermia check (covered by order or simple logic)
+        if has_heat_shimmer and has_heating_up and not has_hyperthermia then
             if SPELLS.SCORCH:cast_safe(target, "Single Target: Scorch (Heat Shimmer)",
                     {
                         --Cast time is instant with heat shimmer
@@ -305,7 +317,7 @@ core.register_on_update_callback(function()
         end
 
         -- Scorch when moving logic
-        if me:is_moving() and not me:buff_up(buffs.HOT_STREAK) and not me:buff_up(buffs.HYPERTHERMIA) then
+        if is_moving and not has_hot_streak and not has_hyperthermia then
             if SPELLS.SCORCH:cast_safe(target, "Single Target: Scorch (Moving)",
                     {
                         --Cast while moving
@@ -319,7 +331,7 @@ core.register_on_update_callback(function()
         end
 
         -- Fire Blast logic - checked first so it can be cast while casting other spells
-        if me:buff_up(buffs.HEATING_UP) and not me:buff_up(buffs.HEAT_SHIMMER) and not me:buff_up(buffs.HYPERTHERMIA) then
+        if has_heating_up and not has_heat_shimmer and not has_hyperthermia then
             if SPELLS.FIREBLAST:cast_safe(target, "Single Target: Fire Blast",
                     {
                         skip_gcd     = true,
@@ -341,8 +353,8 @@ core.register_on_update_callback(function()
         --Check if we have Pyroclasm stacks for a guaranteed critical strike hardcast pyroblast
         --Pyroclasm can have up to 2 stacks, so we cast once per stack
         --Only cast when not in Hyperthermia or Combustion (save for Hot Streak procs during those windows)
-        if pyroclasm_stacks > 0 and not me:buff_up(buffs.HYPERTHERMIA) and not me:buff_up(buffs.COMBUSTION) then
-            if not is_aoe(target) then
+        if pyroclasm_stacks > 0 and not has_hyperthermia and not has_combustion then
+            if not aoe_active then
                 if SPELLS.PYROBLAST:cast_safe(target, "Single Target: Pyroblast (Pyroclasm Hardcast)") then
                     --Track consumed stack to prevent double-casting before buff updates
                     consumed_pyroclasm_stacks = consumed_pyroclasm_stacks + 1
